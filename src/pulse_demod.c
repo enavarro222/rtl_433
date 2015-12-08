@@ -280,9 +280,73 @@ int pulse_demod_manchester_zerobit(const pulse_data_t *pulses, struct protocol_s
 
 int pulse_demod_manchester_framed(const pulse_data_t *pulses, struct protocol_state *device) {
 	int events = 0;
-	unsigned time_since_last = -1;
+	int time_since_last = -2; // time sine last added bit, <0 if start, 0 if bit just added
 	bitbuffer_t bits = {0};
 
+  unsigned int half_period = (unsigned) device->short_limit;
+  unsigned int epsi = half_period/5;
+
+  //fprintf(stderr, "Halfperiod %d epsi %d\n", half_period, epsi);
+
+  // quick and dirty initialization detection
+  //  only wait for two "HHHL" or "HHHLL"
+  for(unsigned n = 0; n < pulses->num_pulses; ++n) {
+    //fprintf(stderr, "%d) pusle %5d gap %5d\n", n, pulses->pulse[n], pulses->gap[n]);
+    if(time_since_last < 0 &&
+        pulses->pulse[n] > half_period*3-epsi &&
+        pulses->pulse[n] < half_period*3+epsi &&
+        pulses->gap[n] > half_period-epsi &&
+        pulses->gap[n] < half_period*2+epsi){
+      time_since_last += 1;
+      if(time_since_last == 0){
+        //fprintf(stderr, "0\n");
+        //XXX: always a '0' after init ?
+        bitbuffer_add_bit(&bits, 0);
+      }
+    }
+
+    if(time_since_last >= 0){
+      // "initialization" is done
+
+      // End of period falling edge is on end of pulse
+      if(time_since_last + pulses->pulse[n] > half_period*2-epsi &&
+         time_since_last + pulses->pulse[n] < half_period*2+epsi){
+        //fprintf(stderr, "0\n");
+        bitbuffer_add_bit(&bits, 0);
+        time_since_last = 0; //pulses->gap[n];
+      } else if (time_since_last + pulses->pulse[n] < half_period*2-epsi) {
+        time_since_last += pulses->pulse[n];
+      }
+      
+      // End of period rising edge is on end of gap
+      if(time_since_last + pulses->gap[n] > half_period*2-epsi &&
+         time_since_last + pulses->gap[n] < half_period*2+epsi){
+        //fprintf(stderr, "1\n");
+        bitbuffer_add_bit(&bits, 1);
+        time_since_last = 0; //pulses->gap[n];
+      } else if (time_since_last + pulses->gap[n] < half_period*2-epsi) {
+        time_since_last += pulses->gap[n];
+      }
+      
+      //TODO: detect invalid manchester pattern
+      
+      if(pulses->gap[n] < epsi || pulses->pulse[n] < epsi){
+        // end of the msg
+        if (device->callback) {
+          events += device->callback(&bits);
+        }
+        // Debug printout
+        if(!device->callback || (debug_output && events > 0)) {
+          fprintf(stderr, "pulse_demod_manchester_framed(): %s \n", device->name);
+          bitbuffer_print(&bits);
+        }
+      }
+    }
+    
+  }
+  return events;
+
+  //XXX: original version
 	for(unsigned n = 0; n < pulses->num_pulses; ++n) {
 		if (time_since_last == (unsigned)-1) {
 			// Waiting for start-of-frame pulse (HHH)
