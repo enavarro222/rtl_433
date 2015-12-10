@@ -51,6 +51,9 @@ static int _decode_manchester(bitbuffer_t *bitbuffer, unsigned int row, unsigned
     unsigned int ipos = start;
     unsigned int bpos = 0;
     while(ipos < len && bpos < buffer_size*8){
+        if(bpos%8 == 0){ // raz next bytes of buffer
+            buffer[bpos/8] = 0x00;
+        }
         uint8_t bit1 = (bits[ipos/8] >> (7-ipos%8)) & 0x01;
         ipos++;
         uint8_t bit2 = (bits[ipos/8] >> (7-ipos%8)) & 0x01;
@@ -95,7 +98,7 @@ static int current_cost_callback(bitbuffer_t *bitbuffer) {
     uint8_t packet[8];
     unsigned int nb_bytes = _decode_manchester(bitbuffer, 0, start_pos, packet, 8);
     // Read data
-    if(nb_bytes >= 7 && packet[0] == 0x0d){
+      if(nb_bytes >= 7 && packet[0] == 0x0d){
         //TODO: add rolling code b[1] ? test needed
         uint16_t watt0 = (packet[2] & 0x7F) << 8 | packet[3] ;
         uint16_t watt1 = (packet[4] & 0x7F) << 8 | packet[5] ;
